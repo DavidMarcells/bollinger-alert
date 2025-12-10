@@ -1,22 +1,22 @@
-# api/cron.py - Vercel Serverless Function
 """
 Bollinger Band Squeeze Alert System
-Serverless deployment on Vercel with Telegram notifications
+Designed for execution via GitHub Actions Cron Job (runs every 5 minutes)
 Zero phone battery usage - runs entirely in cloud
 """
 
-from http.server import BaseHTTPRequestHandler
 import requests
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone
 import json
 import os
+import sys # Added for clean exit on error
 
 # ============================================================================
-# CONFIGURATION (Set in Vercel Environment Variables)
+# CONFIGURATION (Set in GitHub Actions Secrets)
 # ============================================================================
 
+# These variables are automatically loaded by os.getenv() when set in GitHub Secrets
 TWELVE_API_KEY = os.getenv('TWELVE_API_KEY', 'demo')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -25,29 +25,29 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 BOLLINGER_PERIOD = 20
 BOLLINGER_STD = 2.0
 SQUEEZE_THRESHOLD = 0.002
-EXCLUDED_HOURS = [7, 8, 9, 12, 13, 14]
+# Example: Exclude hours 7 AM to 10 AM, and 12 PM to 3 PM UTC
+EXCLUDED_HOURS = [7, 8, 9, 12, 13, 14] 
 
 # State management (using Vercel KV or simple file)
+# NOTE: Cooldown logic requires persistent storage (like a database or Vercel KV).
+# Since GitHub Actions runs are isolated, this simplified state management will 
+# NOT work reliably for cooldown unless you integrate a database.
 LAST_ALERT_KEY = 'last_alert_time'
 ALERT_COOLDOWN = 3600  # 1 hour
 
 # ============================================================================
-# STATE MANAGEMENT (Vercel Edge Config / KV)
+# STATE MANAGEMENT (Simplified for GHA)
 # ============================================================================
 
 def get_last_alert_time():
     """Get last alert timestamp from environment or storage"""
-    # For now, using a simple approach
-    # In production, use Vercel KV or external DB
-    try:
-        # You can integrate Vercel KV here
-        return 0  # Simplified - always allow first alert
-    except:
-        return 0
+    # Placeholder: Always returns 0 (allow first alert) because state cannot 
+    # be easily persisted across isolated GitHub Action runs.
+    return 0
 
 def set_last_alert_time(timestamp):
     """Store last alert timestamp"""
-    # In production, store to Vercel KV or external DB
+    # Placeholder: Does nothing unless integrated with a proper database (e.g., Redis, PostgreSQL).
     pass
 
 # ============================================================================
@@ -66,6 +66,7 @@ def fetch_twelve_data():
     
     try:
         response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
         data = response.json()
         
         if "values" not in data:
@@ -85,6 +86,8 @@ def fetch_twelve_data():
         
         return df, None
         
+    except requests.RequestException as e:
+        return None, f"Request failed: {e}"
     except Exception as e:
         return None, str(e)
 
@@ -95,6 +98,7 @@ def fetch_yahoo_fallback():
         params = {"interval": "1m", "range": "1d"}
         
         response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
         data = response.json()
         
         result = data["chart"]["result"][0]
@@ -113,7 +117,7 @@ def fetch_yahoo_fallback():
         return df, None
         
     except Exception as e:
-        return None, str(e)
+        return None, f"Yahoo fetch failed: {str(e)}"
 
 # ============================================================================
 # TECHNICAL ANALYSIS
@@ -140,6 +144,7 @@ def analyze_market():
     # Fetch data
     df, error = fetch_twelve_data()
     if df is None:
+        print(f"Twelve Data failed. Trying Yahoo Fallback. Error: {error}")
         df, error = fetch_yahoo_fallback()
     
     if df is None:
@@ -185,6 +190,7 @@ def analyze_market():
 def send_telegram_message(message, parse_mode='HTML'):
     """Send message via Telegram bot"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Telegram configuration missing. Cannot send message.")
         return False, "Telegram not configured"
     
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -196,10 +202,10 @@ def send_telegram_message(message, parse_mode='HTML'):
     
     try:
         response = requests.post(url, json=payload, timeout=10)
-        if response.status_code == 200:
-            return True, "Sent"
-        else:
-            return False, response.text
+        response.raise_for_status()
+        return True, "Sent"
+    except requests.RequestException as e:
+        return False, f"Telegram request failed: {e} - Response: {response.text if 'response' in locals() else 'N/A'}"
     except Exception as e:
         return False, str(e)
 
@@ -209,6 +215,7 @@ def send_trade_alert(data):
     band_width = data['band_width']
     
     # Calculate trade parameters
+    # Note: Assuming 4-digit pips (0.0001) for EUR/USD. +4 pips = 0.0004
     stop_loss = price + 0.0004
     take_profit = price - 0.0020
     
@@ -235,104 +242,63 @@ Risk/Reward: 1:5
     
     return send_telegram_message(message)
 
-def send_status_update(result):
-    """Send status update (no signal)"""
-    data = result['data']
-    current_time = datetime.now(timezone.utc).strftime('%H:%M GMT')
-    
-    squeeze_status = "✅ YES" if data['is_squeeze'] else "❌ NO"
-    hour_status = "✅ VALID" if data['is_valid_hour'] else "❌ EXCLUDED"
-    
-    message = f"""
-ℹ️ <b>Market Check</b> ({current_time})
-
-💹 Price: {data['price']:.5f}
-📊 Band Width: {data['band_width']:.6f}
-🔍 Squeeze: {squeeze_status}
-⏰ Hour: {data['current_hour']}:00 GMT {hour_status}
-
-<i>No signal - conditions not met</i>
-"""
-    
-    return send_telegram_message(message)
-
 # ============================================================================
-# MAIN HANDLER (Vercel Serverless Function)
+# MAIN EXECUTION FUNCTION (Standalone Entry Point)
 # ============================================================================
 
-class handler(BaseHTTPRequestHandler):
-    """Vercel serverless function handler"""
+def main_execution():
+    """Main function to be called by GitHub Actions on schedule."""
     
-    def do_GET(self):
-        """Handle cron job trigger"""
+    # --- CHECK ENVIRONMENT ---
+    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+        print("CRITICAL ERROR: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing. Check GitHub Secrets setup.")
+        sys.exit(1) # Exit with an error code
         
-        # Log start
-        print(f"[{datetime.now(timezone.utc).isoformat()}] Cron job triggered")
-        
-        # Analyze market
-        result = analyze_market()
-        
-        if result['status'] == 'error':
-            # Send error response
-            self.send_response(500)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
-            return
-        
-        # Check if signal detected
-        data = result['data']
-        
-        if data['signal']:
-            # TRADE SIGNAL!
-            print(f"🎯 SIGNAL DETECTED! Price: {data['price']:.5f}, BW: {data['band_width']:.6f}")
-            
-            # Check cooldown
-            last_alert = get_last_alert_time()
-            time_since = datetime.now(timezone.utc).timestamp() - last_alert
-            
-            if time_since >= ALERT_COOLDOWN:
-                # Send alert
-                success, msg = send_trade_alert(data)
-                
-                if success:
-                    set_last_alert_time(datetime.now(timezone.utc).timestamp())
-                    result['alert_sent'] = True
-                    print("✅ Alert sent successfully")
-                else:
-                    result['alert_error'] = msg
-                    print(f"❌ Alert failed: {msg}")
-            else:
-                remaining = int((ALERT_COOLDOWN - time_since) / 60)
-                result['cooldown_active'] = True
-                result['cooldown_remaining'] = f"{remaining} minutes"
-                print(f"⏳ Cooldown active: {remaining} min remaining")
-        else:
-            # No signal
-            reasons = []
-            if not data['is_squeeze']:
-                reasons.append("No squeeze")
-            if not data['is_valid_hour']:
-                reasons.append("Invalid hour")
-            
-            print(f"⏸️ No signal: {', '.join(reasons)}")
-        
-        # Send success response
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps(result, indent=2).encode())
-        
-    def do_POST(self):
-        """Handle manual trigger or status check"""
-        self.do_GET()
-
-# For local testing
-if __name__ == "__main__":
-    print("Running local test...")
+    print(f"[{datetime.now(timezone.utc).isoformat()}] Cron job triggered")
+    
+    # --- ANALYZE MARKET ---
     result = analyze_market()
-    print(json.dumps(result, indent=2))
     
-    if result['status'] == 'success' and result['data']['signal']:
-        success, msg = send_trade_alert(result['data'])
-        print(f"Alert sent: {success} - {msg}")
+    if result['status'] == 'error':
+        print(f"❌ Execution failed: {result['message']}")
+        # send_telegram_message(f"Alert System Data Error: {result['message']}") # Optional error notification
+        return # Exit the function on data error
+        
+    # --- CHECK SIGNAL & COOLDOWN ---
+    data = result['data']
+    
+    if data['signal']:
+        print(f"🎯 SIGNAL DETECTED! Price: {data['price']:.5f}, BW: {data['band_width']:.6f}")
+        
+        # Cooldown check logic (will not work without a database!)
+        last_alert = get_last_alert_time() 
+        time_since = datetime.now(timezone.utc).timestamp() - last_alert
+        
+        if time_since >= ALERT_COOLDOWN:
+            # Send alert
+            success, msg = send_trade_alert(data)
+            
+            if success:
+                set_last_alert_time(datetime.now(timezone.utc).timestamp())
+                print("✅ Alert sent successfully")
+            else:
+                print(f"❌ Alert failed: {msg}")
+        else:
+            remaining = int((ALERT_COOLDOWN - time_since) / 60)
+            print(f"⏳ Cooldown active: {remaining} min remaining. Alert skipped.")
+    else:
+        # No signal
+        reasons = []
+        if not data['is_squeeze']:
+            reasons.append("No squeeze")
+        if not data['is_valid_hour']:
+            reasons.append("Invalid hour")
+            
+        print(f"⏸️ No signal: {', '.join(reasons)}")
+
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
+
+if __name__ == "__main__":
+    main_execution()
