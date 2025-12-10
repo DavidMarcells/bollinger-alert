@@ -1,2 +1,2 @@
 # bollinger-alert
-Serverless Bollinger Band alerts
+Serverless Bollinger Band alert
