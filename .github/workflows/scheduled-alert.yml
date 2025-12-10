@@ -1,20 +1,19 @@
 name: Scheduled Bollinger Alert
 
-# Triggers the workflow on a schedule using the cron syntax
 on:
   schedule:
-    # Runs every 5 minutes (UTC)
+    # This runs the job every 5 minutes (UTC)
     - cron: '*/5 * * * *' 
-  # Allows you to manually trigger the workflow from the GitHub Actions tab
+  # Allows you to manually trigger a run from the "Actions" tab in GitHub
   workflow_dispatch:
 
 jobs:
   run-python-script:
-    # Use a fresh Ubuntu virtual machine environment
+    # Uses a standard Ubuntu runner environment
     runs-on: ubuntu-latest
     
     steps:
-      # Step 1: Check out the code from your repository
+      # Step 1: Check out your repository code
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -22,17 +21,19 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # IMPORTANT: Change this to your required Python version
+          # IMPORTANT: Change this to your required Python version (e.g., '3.8', '3.11')
+          python-version: '3.10' 
 
-      # Step 3: Install dependencies (requires a requirements.txt file)
+      # Step 3: Install the project dependencies (requires requirements.txt)
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Step 4: Run your main script file
+      # Step 4: Run your main script file and inject secrets
       - name: Execute Alert Script
-        # **Replace 'path/to/your/script.py' with the actual path to your Python file**
-        # For example: 'python src/alert_main.py' or 'python bot.py'
-        run: python bollinger-alert/API/main.py
-        # You can pass environment variables/secrets to the script here:
-        # env:
-        #   API_KEY: ${{ secrets.YOUR_API_KEY }}
+        # IMPORTANT: Replace 'alert_scheduler.py' if your file is named differently or in a subdirectory
+        run: python alert_scheduler.py 
+        env:
+          # These names MUST match the Secret Names you created in GitHub Settings
+          TWELVE_API_KEY: ${{ secrets.TWELVE_API_KEY }} 
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
