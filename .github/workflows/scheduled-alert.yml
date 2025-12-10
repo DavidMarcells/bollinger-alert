@@ -1,0 +1,38 @@
+name: Scheduled Bollinger Alert
+
+# Triggers the workflow on a schedule using the cron syntax
+on:
+  schedule:
+    # Runs every 5 minutes (UTC)
+    - cron: '*/5 * * * *' 
+  # Allows you to manually trigger the workflow from the GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  run-python-script:
+    # Use a fresh Ubuntu virtual machine environment
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Step 1: Check out the code from your repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up the Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # IMPORTANT: Change this to your required Python version
+
+      # Step 3: Install dependencies (requires a requirements.txt file)
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Step 4: Run your main script file
+      - name: Execute Alert Script
+        # **Replace 'path/to/your/script.py' with the actual path to your Python file**
+        # For example: 'python src/alert_main.py' or 'python bot.py'
+        run: python path/to/your/script.py
+        # You can pass environment variables/secrets to the script here:
+        # env:
+        #   API_KEY: ${{ secrets.YOUR_API_KEY }}
