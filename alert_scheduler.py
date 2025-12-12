@@ -24,7 +24,7 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 # Strategy parameters
 BOLLINGER_PERIOD = 20
 BOLLINGER_STD = 2.0
-SQUEEZE_THRESHOLD = 0.0002
+SQUEEZE_THRESHOLD = 0.00035
 # Example: Exclude hours 7 AM to 10 AM, and 12 PM to 3 PM UTC
 EXCLUDED_HOURS = [] #[7, 8, 9, 12, 13, 14] 
 
