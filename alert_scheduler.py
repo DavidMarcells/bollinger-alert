@@ -26,7 +26,7 @@ BOLLINGER_PERIOD = 20
 BOLLINGER_STD = 2.0
 SQUEEZE_THRESHOLD = 0.0002
 # Example: Exclude hours 7 AM to 10 AM, and 12 PM to 3 PM UTC
-EXCLUDED_HOURS = [7, 8, 9, 12, 13, 14] 
+EXCLUDED_HOURS = [] #[7, 8, 9, 12, 13, 14] 
 
 # State management (using Vercel KV or simple file)
 # NOTE: Cooldown logic requires persistent storage (like a database or Vercel KV).
