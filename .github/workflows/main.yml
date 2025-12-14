@@ -3,7 +3,7 @@ name: Scheduled Bollinger Alert
 on:
   schedule:
     # This runs the job every 5 minutes (UTC)
-    - cron: '*/5 * * * *' 
+    #- cron: '*/5 * * * *' 
   # Allows you to manually trigger a run from the "Actions" tab in GitHub
   workflow_dispatch:
 
