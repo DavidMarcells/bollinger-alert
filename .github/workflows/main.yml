@@ -5,7 +5,7 @@ on:
     # This runs the job every 5 minutes (UTC)
     #- cron: '*/5 * * * *' 
   # Allows you to manually trigger a run from the "Actions" tab in GitHub
-  workflow_dispatch:
+  #workflow_dispatch:
 
 jobs:
   run-python-script:
